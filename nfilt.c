@@ -15,17 +15,22 @@
 #include <linux/netfilter.h>
 #include <linux/netfilter_ipv4.h>
 
+#include <linux/workqueue.h>
+
+void hook_fn_out_bh(struct work_struct *work);
+static DECLARE_WORK(hook_work, hook_fn_out_bh);
+
 
 /*
 * Hook function for IP packets,
 * quiting from machine
 */
-unsigned int hook_function_out(unsigned int hooknum,
+unsigned int hook_fn_out(unsigned int hooknum,
 									  struct sk_buff *skb,
 									  const struct net_device *in,
 									  const struct net_device *out,
 									  int (*okfn)(struct sk_buff *)) {
-	printk(KERN_ALERT"[network animus]: packet catched\n");
+	schedule_work(&hook_work);
 	return NF_ACCEPT;
 }
 
@@ -36,7 +41,7 @@ struct nf_hook_ops hook_ops;
 */
 static int __init filter_init(void) {
 	printk(KERN_ALERT"[network animus]: alive\n");
-	hook_ops.hook = hook_function_out;
+	hook_ops.hook = hook_fn_out;
 	hook_ops.owner = THIS_MODULE;
 	hook_ops.pf = PF_INET;
 	hook_ops.hooknum = NF_INET_LOCAL_OUT;
@@ -52,6 +57,15 @@ static int __init filter_init(void) {
 static void __exit filter_release(void) {
 	printk(KERN_ALERT"[network animus]: released\n");
 	nf_unregister_hook(&hook_ops);
+	flush_scheduled_work();
+}
+
+/*
+* Bottom half of hook function - interrupt
+* hadnler for packets
+*/ 
+void hook_fn_out_bh(struct work_struct *work) {
+	printk(KERN_ALERT"[network animus]: packet catched\n");
 }
 
 module_init(filter_init);
