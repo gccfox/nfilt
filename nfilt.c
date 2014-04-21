@@ -1,11 +1,11 @@
-/*****************************************
+/***************************************************
 * Network packages filter
 * Uses UNIX socket for packages filtering
 *
 *       File: nfilt.c 
 * Created on: 15-04-2014
 *     Author: Lyblinsky Alexander
-******************************************/
+****************************************************/
 
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -18,7 +18,7 @@
 #include <linux/workqueue.h>
 
 void hook_fn_out_bh(struct work_struct *work);
-static DECLARE_WORK(hook_work, hook_fn_out_bh);
+//DECLARE_WORK(hook_work, hook_fn_out_bh);
 
 
 /*
@@ -38,6 +38,12 @@ typedef struct {
 
 
 /*
+* Workqueue for packets
+*/
+static struct workqueue_struct *packet_wq;
+
+
+/*
 * Hook function for IP packets,
 * quiting from machine
 */
@@ -47,10 +53,22 @@ unsigned int hook_fn_out(unsigned int hooknum,
 						 const struct net_device *out,
 						 int (*okfn)(struct sk_buff *)) {
 
-//	hook_data_t hook_data;
-//	INIT_WORK(&hook_data.work, hook_fn_out);
-	schedule_work(&hook_work);
+	hook_data_t *hook_data;
+	hook_data = kmalloc(sizeof(hook_data_t), GFP_ATOMIC);
+	INIT_WORK(&(hook_data->work), hook_fn_out_bh);
+	queue_work(packet_wq, &(hook_data->work)); 
 	return NF_ACCEPT;
+}
+
+
+/*
+* Bottom half of hook function - interrupt
+* hadnler for packets
+*/ 
+void hook_fn_out_bh(struct work_struct *work) {
+	hook_data_t *hook_data = container_of(work, hook_data_t, work);
+	printk(KERN_ALERT"[network animus]: packet catched\n");
+	kfree(hook_data);
 }
 
 
@@ -65,6 +83,15 @@ struct nf_hook_ops hook_ops;
 */
 static int __init filter_init(void) {
 	printk(KERN_ALERT"[network animus]: alive\n");
+
+	packet_wq = create_workqueue("nfilter_workqueue");
+	if (packet_wq == NULL) {
+		printk(KERN_ALERT"[network animus]: workqueue creation error!\n");
+		return -1;
+	} else {
+		printk(KERN_ALERT"[network animus]: workqueue created successfully\n"); 
+	}
+
 	hook_ops.hook = hook_fn_out;
 	hook_ops.owner = THIS_MODULE;
 	hook_ops.pf = PF_INET;
@@ -80,16 +107,10 @@ static int __init filter_init(void) {
 static void __exit filter_release(void) {
 	printk(KERN_ALERT"[network animus]: released\n");
 	nf_unregister_hook(&hook_ops);
-	flush_scheduled_work();
-}
 
-
-/*
-* Bottom half of hook function - interrupt
-* hadnler for packets
-*/ 
-void hook_fn_out_bh(struct work_struct *work) {
-	printk(KERN_ALERT"[network animus]: packet catched\n");
+	flush_workqueue(packet_wq);
+	destroy_workqueue(packet_wq);
+	//flush_scheduled_work();
 }
 
 
