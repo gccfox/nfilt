@@ -8,17 +8,19 @@
 ****************************************************/
 
 #include <linux/module.h>
-#include <linux/kernel.h>
-
+#include <linux/kernel.h> 
 #include <linux/types.h>
 
 #include <linux/netfilter.h>
 #include <linux/netfilter_ipv4.h>
+#include <linux/skbuff.h>
+#include <linux/ip.h>
 
 #include <linux/workqueue.h>
+#define PROTOCOL_TCP_NUM    6U
+#define PROTOCOL_UDP_NUM    17U
 
 void hook_fn_out_bh(struct work_struct *work);
-//DECLARE_WORK(hook_work, hook_fn_out_bh);
 
 
 /*
@@ -29,12 +31,11 @@ void hook_fn_out_bh(struct work_struct *work);
 * of hook interrupt handler
 */
 typedef struct {
-	sk_buff_data_t iphdr;
+	struct iphdr *network_header;
 	sk_buff_data_t transport_header;
-	sk_buff_data_t network_header;
 	sk_buff_data_t mac_header;
 	struct work_struct work;
-} hook_data_t;
+} packet_data_t;
 
 
 /*
@@ -53,10 +54,26 @@ unsigned int hook_fn_out(unsigned int hooknum,
 						 const struct net_device *out,
 						 int (*okfn)(struct sk_buff *)) {
 
-	hook_data_t *hook_data;
-	hook_data = kmalloc(sizeof(hook_data_t), GFP_ATOMIC);
-	INIT_WORK(&(hook_data->work), hook_fn_out_bh);
-	queue_work(packet_wq, &(hook_data->work)); 
+	packet_data_t *packet_data;
+	struct iphdr *network_header;
+	network_header = (struct iphdr *)skb_network_header(skb);
+
+	// Print info about packet
+	if (network_header->protocol == PROTOCOL_TCP_NUM) {
+		printk(KERN_ALERT"[network animus]: TCP packet from intr!\n");
+	} else if (network_header->protocol == PROTOCOL_UDP_NUM) {
+		printk(KERN_ALERT"[network animus]: UDP packet from intr!\n");
+	} else {
+		printk(KERN_ALERT"[network animus]: packet from intr!\n");
+	}
+
+	// Filling packet data
+	packet_data = kmalloc(sizeof(packet_data_t), GFP_ATOMIC); 
+	packet_data->network_header = network_header;
+
+	// Queuing task
+	INIT_WORK(&(packet_data->work), hook_fn_out_bh);
+	queue_work(packet_wq, &(packet_data->work)); 
 	return NF_ACCEPT;
 }
 
@@ -66,9 +83,12 @@ unsigned int hook_fn_out(unsigned int hooknum,
 * hadnler for packets
 */ 
 void hook_fn_out_bh(struct work_struct *work) {
-	hook_data_t *hook_data = container_of(work, hook_data_t, work);
+	packet_data_t *packet_data = container_of(work, packet_data_t, work);
+	//printk(KERN_ALERT"[network animus]: packet catched IP: %d\n", packet_data->network_header->id); 
+
 	printk(KERN_ALERT"[network animus]: packet catched\n");
-	kfree(hook_data);
+
+	kfree(packet_data);
 }
 
 
