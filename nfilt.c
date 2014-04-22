@@ -15,6 +15,8 @@
 #include <linux/netfilter_ipv4.h>
 #include <linux/skbuff.h>
 #include <linux/ip.h>
+#include <linux/tcp.h>
+#include <linux/udp.h>
 
 #include <linux/workqueue.h>
 #define PROTOCOL_TCP_NUM    6U
@@ -56,16 +58,25 @@ unsigned int hook_fn_out(unsigned int hooknum,
 
 	packet_data_t *packet_data;
 	struct iphdr *network_header;
+	struct tcphdr *tcp_header;
 	network_header = (struct iphdr *)skb_network_header(skb);
+
+	// Print IP packet info
+	printk(KERN_ALERT"[network animus]: IP packet saddr = %x, daddr = %x\n", network_header->saddr, network_header->daddr);
 
 	// Print info about packet
 	if (network_header->protocol == PROTOCOL_TCP_NUM) {
 		printk(KERN_ALERT"[network animus]: TCP packet from intr!\n");
+		tcp_header = (struct tcphdr *)tcp_hdr(skb);
+		printk(KERN_ALERT"[network animus]: [TCP] packet sport %x, dport %x\n", tcp_header->source, tcp_header->dest);
 	} else if (network_header->protocol == PROTOCOL_UDP_NUM) {
 		printk(KERN_ALERT"[network animus]: UDP packet from intr!\n");
 	} else {
 		printk(KERN_ALERT"[network animus]: packet from intr!\n");
 	}
+	
+	// Print port specification
+	//printk(KERN_ALERT"[network animus]: packet port: %d\n");
 
 	// Filling packet data
 	packet_data = kmalloc(sizeof(packet_data_t), GFP_ATOMIC); 
