@@ -10,17 +10,19 @@
 #include <linux/module.h>
 #include <linux/kernel.h> 
 #include <linux/types.h>
+#include <linux/ktime.h>
 
 #include <linux/netfilter.h>
 #include <linux/netfilter_ipv4.h>
 #include <linux/skbuff.h>
 #include <linux/ip.h>
+#include <net/ip.h>
 #include <linux/tcp.h>
 #include <linux/udp.h>
 
 #include <linux/workqueue.h>
-#define PROTOCOL_TCP_NUM    6U
-#define PROTOCOL_UDP_NUM    17U
+
+// EXPORT_SYMBOL(ip_output);
 
 void hook_fn_out_bh(struct work_struct *work);
 
@@ -33,17 +35,17 @@ void hook_fn_out_bh(struct work_struct *work);
 * of hook interrupt handler
 */
 typedef struct {
-	struct iphdr *network_header;
-	sk_buff_data_t transport_header;
-	sk_buff_data_t mac_header;
+	struct sk_buff *skb;
 	struct work_struct work;
 } packet_data_t;
+
 
 
 /*
 * Workqueue for packets
 */
 static struct workqueue_struct *packet_wq;
+
 
 
 /*
@@ -57,56 +59,57 @@ unsigned int hook_fn_out(unsigned int hooknum,
 						 int (*okfn)(struct sk_buff *)) {
 
 	packet_data_t *packet_data;
-	struct iphdr *network_header;
-	struct tcphdr *tcp_header;
-	network_header = (struct iphdr *)skb_network_header(skb);
 
-	// Print IP packet info
-	printk(KERN_ALERT"[network animus]: IP packet saddr = %x, daddr = %x\n", network_header->saddr, network_header->daddr);
-
-	// Print info about packet
-	if (network_header->protocol == PROTOCOL_TCP_NUM) {
-		printk(KERN_ALERT"[network animus]: TCP packet from intr!\n");
-		tcp_header = (struct tcphdr *)tcp_hdr(skb);
-		printk(KERN_ALERT"[network animus]: [TCP] packet sport %x, dport %x\n", tcp_header->source, tcp_header->dest);
-	} else if (network_header->protocol == PROTOCOL_UDP_NUM) {
-		printk(KERN_ALERT"[network animus]: UDP packet from intr!\n");
-	} else {
-		printk(KERN_ALERT"[network animus]: packet from intr!\n");
-	}
-	
-	// Print port specification
-	//printk(KERN_ALERT"[network animus]: packet port: %d\n");
-
-	// Filling packet data
+	// Filling tmp packet data
 	packet_data = kmalloc(sizeof(packet_data_t), GFP_ATOMIC); 
-	packet_data->network_header = network_header;
+	packet_data->skb = skb_copy(skb, GFP_ATOMIC);
 
 	// Queuing task
 	INIT_WORK(&(packet_data->work), hook_fn_out_bh);
 	queue_work(packet_wq, &(packet_data->work)); 
-	return NF_ACCEPT;
+	return NF_DROP;
 }
+
 
 
 /*
 * Bottom half of hook function - interrupt
-* hadnler for packets
+* handler for packets
 */ 
 void hook_fn_out_bh(struct work_struct *work) {
 	packet_data_t *packet_data = container_of(work, packet_data_t, work);
-	//printk(KERN_ALERT"[network animus]: packet catched IP: %d\n", packet_data->network_header->id); 
+	struct iphdr *network_header;
+	struct tcphdr *tcp_header;
+	network_header = (struct iphdr *)skb_network_header(packet_data->skb);
 
-	printk(KERN_ALERT"[network animus]: packet catched\n");
+	printk(KERN_ALERT"[network animus]: [BH]: ----- packet catched\n");
+	printk(KERN_ALERT"[network animus]: [BH]: IP packet saddr = %x, daddr = %x\n", network_header->saddr, network_header->daddr);
 
+	// Print info about packet
+	if (network_header->protocol == IPPROTO_TCP) {
+		printk(KERN_ALERT"[network animus]: [BH]: TCP packet from intr!\n");
+		tcp_header = (struct tcphdr *)tcp_hdr(packet_data->skb);
+		printk(KERN_ALERT"[network animus]: [BH]: [TCP] packet sport %x, dport %x\n", tcp_header->source, tcp_header->dest);
+	/*} else if (network_header->protocol == PROTOCOL_UDP_NUM) {
+		printk(KERN_ALERT"[network animus]: UDP packet from intr!\n");*/
+	} else {
+		printk(KERN_ALERT"[network animus]: [BH]: packet unknown protocol\n");
+	}
+
+	// Send packet to post routing
+	// ip_output(packet_data->skb);
+
+	kfree_skb(packet_data->skb);
 	kfree(packet_data);
 }
 
 
+
 /*
-*
+* Operations with hook function
 */
 struct nf_hook_ops hook_ops;
+
 
 
 /*
@@ -123,6 +126,7 @@ static int __init filter_init(void) {
 		printk(KERN_ALERT"[network animus]: workqueue created successfully\n"); 
 	}
 
+	// Init hook operations
 	hook_ops.hook = hook_fn_out;
 	hook_ops.owner = THIS_MODULE;
 	hook_ops.pf = PF_INET;
@@ -130,6 +134,7 @@ static int __init filter_init(void) {
 	nf_register_hook(&hook_ops); 
 	return 0;
 }
+
 
 
 /*
@@ -141,7 +146,6 @@ static void __exit filter_release(void) {
 
 	flush_workqueue(packet_wq);
 	destroy_workqueue(packet_wq);
-	//flush_scheduled_work();
 }
 
 
