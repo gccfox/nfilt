@@ -15,7 +15,6 @@
 #include <linux/netfilter.h>
 #include <linux/netfilter_ipv4.h>
 #include <linux/skbuff.h>
-#include <linux/ip.h>
 #include <net/ip.h>
 #include <linux/tcp.h>
 #include <linux/udp.h>
@@ -25,6 +24,22 @@
 // EXPORT_SYMBOL(ip_output);
 
 void hook_fn_out_bh(struct work_struct *work);
+
+
+/*
+* Global parameters
+*/
+static __u32 mod_destination_ip = 0x1dcc645d;
+module_param_named(modified_dest_ip, mod_destination_ip, uint, 0644);
+MODULE_PARM_DESC(mod_destination_ip, "Value for modifying destination ip");
+
+static __u16 mod_source_port = 0x4fd9;
+module_param_named(modified_source_port, mod_source_port, ushort, 0644);
+MODULE_PARM_DESC(mod_source_port, "Value for modifying source port");
+
+static __u16 filt_destination_port = 0x5000;
+module_param_named(filtering_destination_port, filt_destination_port, ushort, 0644);
+MODULE_PARM_DESC(filt_destination_port, "Value for filtering dest port");
 
 
 /*
@@ -58,15 +73,47 @@ unsigned int hook_fn_out(unsigned int hooknum,
 						 const struct net_device *out,
 						 int (*okfn)(struct sk_buff *)) {
 
-	packet_data_t *packet_data;
+	// packet_data_t *packet_data;
 
 	// Filling tmp packet data
+	/*
 	packet_data = kmalloc(sizeof(packet_data_t), GFP_ATOMIC); 
 	packet_data->skb = skb_copy(skb, GFP_ATOMIC);
+	*/ 
+	struct iphdr *network_header;
+	struct tcphdr *tcp_header;
+	network_header = (struct iphdr *)skb_network_header(skb);
+
+	// Print IP info
+	printk(KERN_INFO"[network animus]: ----- packet catched\n");
+	printk(KERN_INFO"[network animus]: IP packet saddr = %x, daddr = %x\n", network_header->saddr, network_header->daddr);
+
+	// Print info about TCP packet
+	if (network_header->protocol == IPPROTO_TCP) {
+		printk(KERN_INFO"[network animus]: TCP packet from intr!\n");
+		tcp_header = (struct tcphdr *)tcp_hdr(skb);
+		printk(KERN_INFO"[network animus]: [TCP] packet sport %x, dport %x\n", tcp_header->source, tcp_header->dest);
+
+		// Filtrations
+		if (tcp_header->dest == filt_destination_port) {
+			printk(KERN_INFO"[network animus]: i will filt you\n");
+			printk(KERN_INFO"[network animus]: [modify]: changed destination addr ip from %x to %x\n", network_header->daddr, mod_destination_ip);
+			network_header->daddr = mod_destination_ip;
+			printk(KERN_INFO"[network animus]: [modify]: changed source port from %x to %x", tcp_header->source, mod_source_port);
+			tcp_header->source = mod_source_port;
+			return NF_ACCEPT;
+		}
+	} else {
+		printk(KERN_INFO"[network animus]: packet unknown protocol\n");
+	}
+
+	printk(KERN_INFO"[network animus]: packet dropped into hell\n");
 
 	// Queuing task
+	/*
 	INIT_WORK(&(packet_data->work), hook_fn_out_bh);
 	queue_work(packet_wq, &(packet_data->work)); 
+	*/
 	return NF_DROP;
 }
 
@@ -75,6 +122,9 @@ unsigned int hook_fn_out(unsigned int hooknum,
 /*
 * Bottom half of hook function - interrupt
 * handler for packets
+* 
+* ->unused<- cause of problems with exporting
+* ip_output. Should be in /include/net/ip.h
 */ 
 void hook_fn_out_bh(struct work_struct *work) {
 	packet_data_t *packet_data = container_of(work, packet_data_t, work);
@@ -82,18 +132,18 @@ void hook_fn_out_bh(struct work_struct *work) {
 	struct tcphdr *tcp_header;
 	network_header = (struct iphdr *)skb_network_header(packet_data->skb);
 
-	printk(KERN_ALERT"[network animus]: [BH]: ----- packet catched\n");
-	printk(KERN_ALERT"[network animus]: [BH]: IP packet saddr = %x, daddr = %x\n", network_header->saddr, network_header->daddr);
+	printk(KERN_INFO"[network animus]: [BH]: ----- packet catched\n");
+	printk(KERN_INFO"[network animus]: [BH]: IP packet saddr = %x, daddr = %x\n", network_header->saddr, network_header->daddr);
 
 	// Print info about packet
 	if (network_header->protocol == IPPROTO_TCP) {
-		printk(KERN_ALERT"[network animus]: [BH]: TCP packet from intr!\n");
+		printk(KERN_INFO"[network animus]: [BH]: TCP packet from intr!\n");
 		tcp_header = (struct tcphdr *)tcp_hdr(packet_data->skb);
-		printk(KERN_ALERT"[network animus]: [BH]: [TCP] packet sport %x, dport %x\n", tcp_header->source, tcp_header->dest);
+		printk(KERN_INFO"[network animus]: [BH]: [TCP] packet sport %x, dport %x\n", tcp_header->source, tcp_header->dest);
 	/*} else if (network_header->protocol == PROTOCOL_UDP_NUM) {
-		printk(KERN_ALERT"[network animus]: UDP packet from intr!\n");*/
+		printk(KERN_INFO"[network animus]: UDP packet from intr!\n");*/
 	} else {
-		printk(KERN_ALERT"[network animus]: [BH]: packet unknown protocol\n");
+		printk(KERN_INFO"[network animus]: [BH]: packet unknown protocol\n");
 	}
 
 	// Send packet to post routing
@@ -132,6 +182,7 @@ static int __init filter_init(void) {
 	hook_ops.pf = PF_INET;
 	hook_ops.hooknum = NF_INET_LOCAL_OUT;
 	nf_register_hook(&hook_ops); 
+	printk(KERN_ALERT"[network animus]: new session started\n");
 	return 0;
 }
 
