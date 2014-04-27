@@ -86,28 +86,28 @@ unsigned int hook_fn_out(unsigned int hooknum,
 
 	// Print IP info
 	printk(KERN_INFO"[network animus]: ----- packet catched\n");
-	printk(KERN_INFO"[network animus]: IP packet saddr = %x, daddr = %x\n", network_header->saddr, network_header->daddr);
+	printk(KERN_INFO"[network animus]: [IP] packet source IP addr = %x, destination IP addr = %x\n", network_header->saddr, network_header->daddr);
 
 	// Print info about TCP packet
 	if (network_header->protocol == IPPROTO_TCP) {
-		printk(KERN_INFO"[network animus]: TCP packet from intr!\n");
+		printk(KERN_INFO"[network animus]: [TCP] packet recognized\n");
 		tcp_header = (struct tcphdr *)tcp_hdr(skb);
-		printk(KERN_INFO"[network animus]: [TCP] packet sport %x, dport %x\n", tcp_header->source, tcp_header->dest);
+		printk(KERN_INFO"[network animus]: [TCP] packet source port %x, destination port %x\n", tcp_header->source, tcp_header->dest);
 
 		// Filtrations
 		if (tcp_header->dest == filt_destination_port) {
 			printk(KERN_INFO"[network animus]: i will filt you\n");
-			printk(KERN_INFO"[network animus]: [modify]: changed destination addr ip from %x to %x\n", network_header->daddr, mod_destination_ip);
+			printk(KERN_INFO"[network animus]: [modify]: changed destination IP addr ip from %x to %x\n", network_header->daddr, mod_destination_ip);
 			network_header->daddr = mod_destination_ip;
 			printk(KERN_INFO"[network animus]: [modify]: changed source port from %x to %x", tcp_header->source, mod_source_port);
 			tcp_header->source = mod_source_port;
 			return NF_ACCEPT;
 		}
 	} else {
-		printk(KERN_INFO"[network animus]: packet unknown protocol\n");
+		printk(KERN_INFO"[network animus]: [SUDENNESS] packet unknown protocol\n");
 	}
 
-	printk(KERN_INFO"[network animus]: packet dropped into hell\n");
+	printk(KERN_INFO"[network animus]: packet dropped into __hell\n");
 
 	// Queuing task
 	/*
@@ -166,7 +166,7 @@ struct nf_hook_ops hook_ops;
 * Module initialization function
 */
 static int __init filter_init(void) {
-	printk(KERN_ALERT"[network animus]: alive\n");
+	printk(KERN_ALERT"[network animus]: [alive]\n");
 
 	packet_wq = create_workqueue("nfilter_workqueue");
 	if (packet_wq == NULL) {
@@ -182,7 +182,7 @@ static int __init filter_init(void) {
 	hook_ops.pf = PF_INET;
 	hook_ops.hooknum = NF_INET_LOCAL_OUT;
 	nf_register_hook(&hook_ops); 
-	printk(KERN_ALERT"[network animus]: new session started\n");
+	printk(KERN_ALERT"[network animus]: [***]: new session started\n");
 	return 0;
 }
 
