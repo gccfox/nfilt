@@ -47,7 +47,7 @@ static __u16 filt_destination_port = 0x5000;
 module_param_named(filtering_destination_port, filt_destination_port, ushort, 0644);
 MODULE_PARM_DESC(filt_destination_port, "Value for filtering dest port");
 
-static __u16 mod_first_byte = 0x7;
+static __u16 mod_first_byte = 0x70;
 module_param_named(modified_first_byte, mod_first_byte, ushort, 0644);
 MODULE_PARM_DESC(mod_first_byte, "Value of first byte in data of packet to be modified");
 
@@ -114,6 +114,7 @@ unsigned int hook_fn_out(unsigned int hooknum,
 			tcp_header->source = mod_source_port;
             data = (char *)((unsigned char *)tcp_header + (tcp_header->doff * 4));
             data[0] = mod_first_byte;
+            skb->ip_summed = CHECKSUM_UNNECESSARY;
 			return NF_ACCEPT;
 		}
 	} 
@@ -145,31 +146,35 @@ void hook_fn_out_bh(struct work_struct *work) {
 	}
 
 	// Print IP info
-	printk(KERN_INFO"[network animus]: [BH]:----- packet catched\n");
-	printk(KERN_INFO"[network animus]: [BH]:  [IP] packet source IP addr = %x, destination IP addr = %x\n", network_header->saddr, network_header->daddr);
+    printk(KERN_INFO"[network animus]:[------BEGIN-OF-PACKET------] \n");
+	printk(KERN_INFO"[network animus]: [BH]: [packet catched]\n");
+	printk(KERN_INFO"[network animus]: [BH]: [IP] packet source IP addr = %x, destination IP addr = %x\n", network_header->saddr, network_header->daddr);
 
-    // Print info about TCP packet
+    // Continue work with TCP packets only
 	if (network_header->protocol == IPPROTO_TCP) {
 		printk(KERN_INFO"[network animus]: [BH]: [TCP] packet recognized\n");
 		tcp_header = (struct tcphdr *)tcp_hdr(skb);
 		printk(KERN_INFO"[network animus]: [BH]: [TCP] packet source port %x, destination port %x\n", tcp_header->source, tcp_header->dest);
 
+        // Print first 15 bytes of data
+        printk(KERN_INFO"[network_animus]: [BH]: first 15 bytes of packet data:\n");
+        data = (char *)((unsigned char *)tcp_header + (tcp_header->doff * 4));
+        for (i = 0; i < 15; i++) {
+            printk(KERN_INFO"%c", data[i]);
+        } 
+        printk(KERN_INFO"\n"); 
+
 		// Filtrations
 		if (tcp_header->dest == filt_destination_port) {
-			printk(KERN_INFO"[network animus]: [BH]: i will filt you\n");
-			printk(KERN_INFO"[network animus]: [BH]: [modify]: changed destination IP addr ip from %x to %x\n", network_header->daddr, mod_destination_ip);
-
-            // Print first 15 bytes of data
-            data = (char *)((unsigned char *)tcp_header + (tcp_header->doff * 4));
-            for (i = 0; i < 15; i++) {
-                printk(KERN_INFO"%c", data[i]);
-            } 
-		}
+			printk(KERN_INFO"[network animus]: [BH]: [filtration]\n");
+			printk(KERN_INFO"[network animus]: [BH]: [modify]: changed destination IP addr ip from %x to %x\n", network_header->daddr, mod_destination_ip); 
+			printk(KERN_INFO"[network animus]: [BH]: [modify]: changed source port from %x to %x\n", tcp_header->source, mod_source_port);
+			printk(KERN_INFO"[network animus]: [BH]: [modify]: changed first data byte from %x to %x\n", data[0], mod_first_byte);
+        }
 	} else {
 		printk(KERN_INFO"[network animus]: [BH]: [SUDENNESS] packet unknown protocol\n");
 	}
-
-	printk(KERN_INFO"[network animus]: [BH]: data of packet %s\n", skb->data);
+    printk(KERN_INFO"[network animus]:[-------END-OF-PACKET-------] \n\n");
 }
 
 
