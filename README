@@ -1,0 +1,12 @@
+/***************************************************************
+* Simple network firewall. 
+* Accept all TCP apckets with destiantion port value equals to 
+* filt_destination_port, and drop others. 
+* All packets, that accepted will be modifyed by
+* filter:
+*   1) Changed destination IP to mod_destination_ip
+*   2) Changed source port to mod_source_port
+*   3) Changed first byte in data of packet to mod_first_byte
+***************************************************************/
+
+
